@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import Base
@@ -50,6 +51,27 @@ class RequestLog(Base):
     latency_ms: Mapped[float] = mapped_column(Float)
     auth_type: Mapped[str] = mapped_column(String(32), default="none")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class MemoryProfile(Base):
+    __tablename__ = "memory_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    profile_text: Mapped[str] = mapped_column(Text, default="")
+    profile_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    source_memory_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_memory_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_cursor_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="ready")
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
 
 
 class RefreshTokenJti(Base):
