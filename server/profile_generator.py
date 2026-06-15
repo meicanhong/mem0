@@ -47,7 +47,7 @@ def _build_profile_prompt(memories: List[Dict[str, Any]]) -> str:
         "You generate a cached user profile from stored long-term memories.\n"
         "Return strict JSON only, with this shape:\n"
         "{\n"
-        '  "profile_text": "A concise 200-400 token narrative profile.",\n'
+        '  "profile_text": "A concise narrative profile, maximum 3000 characters.",\n'
         '  "profile_json": {\n'
         '    "basic_info": {},\n'
         '    "preferences": [],\n'
@@ -85,7 +85,7 @@ def _build_increase_profile_prompt(current_profile: Dict[str, Any], memories: Li
         "You update a cached user profile by incorporating the next batch of long-term memories.\n"
         "Return strict JSON only, with this shape:\n"
         "{\n"
-        '  "profile_text": "A concise 200-400 token narrative profile.",\n'
+        '  "profile_text": "A concise narrative profile, maximum 3000 characters.",\n'
         '  "profile_json": {\n'
         '    "basic_info": {},\n'
         '    "preferences": [],\n'
