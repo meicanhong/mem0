@@ -85,8 +85,61 @@ def test_parse_profile_response_invalid_json_fails(caplog):
     assert "profile refresh will fail" in caplog.text
 
 
-def test_refresh_profile_invalid_llm_response_marks_failed_without_overwriting(monkeypatch):
+def test_generate_profile_payload_uses_json_response_format():
     import profile_generator
+
+    llm = MagicMock()
+    llm.generate_response.return_value = """
+    {
+      "profile_text": "User likes concise answers.",
+      "profile_json": {
+        "basic_info": {},
+        "preferences": ["concise answers"],
+        "work_context": [],
+        "stable_facts": [],
+        "goals": [],
+        "communication_style": []
+      }
+    }
+    """
+
+    result = profile_generator.generate_profile_payload(llm, [{"memory": "User likes concise answers."}])
+
+    assert result["profile_text"] == "User likes concise answers."
+    llm.generate_response.assert_called_once()
+    assert llm.generate_response.call_args.kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_generate_profile_payload_retries_invalid_json_once():
+    import profile_generator
+
+    llm = MagicMock()
+    llm.generate_response.side_effect = [
+        "not a json response",
+        """
+        {
+          "profile_text": "User likes concise answers.",
+          "profile_json": {
+            "basic_info": {},
+            "preferences": ["concise answers"],
+            "work_context": [],
+            "stable_facts": [],
+            "goals": [],
+            "communication_style": []
+          }
+        }
+        """,
+    ]
+
+    result = profile_generator.generate_profile_payload(llm, [{"memory": "User likes concise answers."}])
+
+    assert result["profile_text"] == "User likes concise answers."
+    assert llm.generate_response.call_count == 2
+    for call in llm.generate_response.call_args_list:
+        assert call.kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_refresh_profile_invalid_llm_response_marks_failed_without_overwriting(monkeypatch):
     import profile_service
     from db import Base
     from models import MemoryProfile
@@ -131,8 +184,14 @@ def test_refresh_profile_invalid_llm_response_marks_failed_without_overwriting(m
     monkeypatch.setattr(profile_service, "SessionLocal", testing_session)
     monkeypatch.setattr(profile_service, "get_memory_instance", lambda: mock_memory)
 
-    with pytest.raises(profile_generator.ProfileGenerationError):
-        profile_service.refresh_profile("u1", mode="full")
+    result = profile_service.refresh_profile("u1", mode="full")
+
+    assert result["status"] == "failed"
+    assert result["profile"]["profile_text"] == "Old profile"
+    assert result["profile"]["profile_json"] == {"stable_facts": ["old"]}
+    assert result["profile"]["stale"] is True
+    assert "not valid JSON" in result["error_message"]
+    assert mock_memory.llm.generate_response.call_count == 2
 
     with testing_session() as db:
         row = db.query(MemoryProfile).filter(MemoryProfile.user_id == "u1").one()
@@ -262,7 +321,6 @@ def test_refresh_profile_processes_memories_after_cursor(monkeypatch):
 
 
 def test_increase_profile_does_not_advance_cursor_when_llm_fails(monkeypatch):
-    import profile_generator
     import profile_service
     from db import Base
     from models import MemoryProfile
@@ -309,8 +367,14 @@ def test_increase_profile_does_not_advance_cursor_when_llm_fails(monkeypatch):
     monkeypatch.setattr(profile_service, "SessionLocal", testing_session)
     monkeypatch.setattr(profile_service, "get_memory_instance", lambda: mock_memory)
 
-    with pytest.raises(profile_generator.ProfileGenerationError):
-        profile_service.refresh_profile("u1", mode="increase")
+    result = profile_service.refresh_profile("u1", mode="increase")
+
+    assert result["status"] == "failed"
+    assert result["profile"]["profile_text"] == "Old profile"
+    assert result["profile"]["profile_json"] == {"stable_facts": ["old"]}
+    assert result["profile"]["stale"] is True
+    assert "not valid JSON" in result["error_message"]
+    assert mock_memory.llm.generate_response.call_count == 2
 
     with testing_session() as db:
         row = db.query(MemoryProfile).filter(MemoryProfile.user_id == "u1").one()

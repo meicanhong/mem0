@@ -7,6 +7,8 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 PROFILE_MEMORY_MAX_CHARS = int(os.environ.get("MEM0_PROFILE_MEMORY_MAX_CHARS", "1000"))
+PROFILE_RESPONSE_FORMAT = {"type": "json_object"}
+PROFILE_GENERATION_ATTEMPTS = 2
 
 
 class ProfileGenerationError(ValueError):
@@ -15,8 +17,7 @@ class ProfileGenerationError(ValueError):
 
 def generate_profile_payload(llm, memories: List[Dict[str, Any]]) -> Dict[str, Any]:
     prompt = _build_profile_prompt(memories)
-    response = llm.generate_response([{"role": "user", "content": prompt}])
-    return parse_profile_response(response)
+    return _generate_profile_payload(llm, prompt)
 
 
 def generate_increase_profile_payload(
@@ -25,8 +26,31 @@ def generate_increase_profile_payload(
     memories: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     prompt = _build_increase_profile_prompt(current_profile, memories)
-    response = llm.generate_response([{"role": "user", "content": prompt}])
-    return parse_profile_response(response)
+    return _generate_profile_payload(llm, prompt)
+
+
+def _generate_profile_payload(llm, prompt: str) -> Dict[str, Any]:
+    messages = [{"role": "user", "content": prompt}]
+    last_error: ProfileGenerationError | None = None
+
+    for attempt in range(1, PROFILE_GENERATION_ATTEMPTS + 1):
+        response = llm.generate_response(messages, response_format=PROFILE_RESPONSE_FORMAT)
+        try:
+            return parse_profile_response(response)
+        except ProfileGenerationError as exc:
+            last_error = exc
+            if attempt >= PROFILE_GENERATION_ATTEMPTS:
+                break
+            logger.warning(
+                "Profile response parsing failed; retrying with JSON response format",
+                extra={
+                    "operation": "profile_refresh",
+                    "status": "retry_invalid_llm_response",
+                    "attempt": attempt,
+                },
+            )
+
+    raise last_error or ProfileGenerationError("Profile LLM response was not valid JSON.")
 
 
 def _build_profile_prompt(memories: List[Dict[str, Any]]) -> str:

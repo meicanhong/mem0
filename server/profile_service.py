@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from db import SessionLocal
 from profile_generator import (
+    ProfileGenerationError,
     generate_increase_profile_payload,
     generate_profile_payload,
 )
@@ -66,9 +67,28 @@ def refresh_profile(user_id: str, mode: str = "increase") -> Dict[str, Any]:
         db.rollback()
         try:
             mark_profile_failed(db, user_id, exc)
+            failed_row = get_profile(db, user_id)
         except Exception:
             db.rollback()
             logger.exception("Failed to mark profile refresh as failed", extra={"user_id": user_id})
+            failed_row = None
+
+        if isinstance(exc, ProfileGenerationError) and failed_row is not None and failed_row.profile_text:
+            logger.warning(
+                "Profile refresh failed; returning stale cached profile",
+                extra={
+                    "operation": "profile_refresh",
+                    "status": "failed_with_stale_profile",
+                    "user_id": user_id,
+                    "mode": mode,
+                },
+            )
+            return {
+                "profile": profile_to_response(failed_row),
+                "status": "failed",
+                "mode": mode,
+                "error_message": str(exc),
+            }
         raise
     finally:
         db.close()
